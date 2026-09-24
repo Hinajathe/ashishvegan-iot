@@ -56,14 +56,53 @@ const String SERVER_URL = "https://ashishvegan-iot.onrender.com";
 
 // Timing intervals
 unsigned long lastSensorPushTime = 0;
-const unsigned long SENSOR_INTERVAL = 10000; // Push sensor data every 10 seconds (10,000 ms)
+const unsigned long SENSOR_INTERVAL = 10000; // Push sensor data every 10 seconds
 
 unsigned long lastDevicePollTime = 0;
-const unsigned long POLL_INTERVAL = 2000;    // Poll LED & LCD state every 2 seconds (2,000 ms)
+const unsigned long POLL_INTERVAL = 4000;    // Poll LED & LCD state every 4 seconds (safe for SSL)
 
 // Tracking previous state to avoid LCD flicker
 String lastLcdRow1 = "";
 String lastLcdRow2 = "";
+
+// ------------------------------------------------------------------------------------
+// HELPER: APPLY HARDWARE STATE (LED & LCD)
+// ------------------------------------------------------------------------------------
+void applyDeviceState(int ledState, String row1, String row2) {
+  // 1. Control LED on Pin D6
+  digitalWrite(LEDPIN, ledState == 1 ? HIGH : LOW);
+  Serial.print(F("[ACTION] LED Pin D6 set to: "));
+  Serial.println(ledState == 1 ? F("HIGH (ON)") : F("LOW (OFF)"));
+
+  // 2. Format & update LCD screen
+  if (row1.length() == 0 && row2.length() == 0) {
+    row1 = "Aaditya Kayande";
+    row2 = "System Ready";
+  }
+
+  // Pad strings to 16 characters to cleanly overwrite old characters without artifacts
+  while (row1.length() < 16) row1 += " ";
+  while (row2.length() < 16) row2 += " ";
+  row1 = row1.substring(0, 16);
+  row2 = row2.substring(0, 16);
+
+  // Update screen only if text has changed to prevent LCD flicker
+  if (row1 != lastLcdRow1 || row2 != lastLcdRow2) {
+    lcd.setCursor(0, 0);
+    lcd.print(row1);
+    lcd.setCursor(0, 1);
+    lcd.print(row2);
+
+    lastLcdRow1 = row1;
+    lastLcdRow2 = row2;
+
+    Serial.print(F("[ACTION] LCD Updated -> [R1]: '"));
+    Serial.print(row1);
+    Serial.print(F("' | [R2]: '"));
+    Serial.print(row2);
+    Serial.println(F("'"));
+  }
+}
 
 // ------------------------------------------------------------------------------------
 // SETUP
@@ -81,7 +120,16 @@ void setup() {
 
   // Initialize LED Pin
   pinMode(LEDPIN, OUTPUT);
-  digitalWrite(LEDPIN, LOW); // Start with LED OFF
+  
+  // LED Self-Test Blink on Startup: verify hardware wiring on D6!
+  Serial.println(F("[HARDWARE] Testing LED on Pin D6..."));
+  digitalWrite(LEDPIN, HIGH);
+  delay(300);
+  digitalWrite(LEDPIN, LOW);
+  delay(200);
+  digitalWrite(LEDPIN, HIGH);
+  delay(300);
+  digitalWrite(LEDPIN, LOW);
 
   // Initialize I2C communication (SDA = D2, SCL = D1)
   Wire.begin(D2, D1);
@@ -125,7 +173,7 @@ void setup() {
     delay(2000);
   } else {
     Serial.println();
-    Serial.println(F("WiFi Connection Failed! Running in standalone mode."));
+    Serial.println(F("WiFi Connection Failed! Check SSID/Password."));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("WiFi Failed!");
@@ -138,9 +186,9 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("Aaditya Kayande");
   lcd.setCursor(0, 1);
-  lcd.print("Render Connected");
-  lastLcdRow1 = "Aaditya Kayande";
-  lastLcdRow2 = "Render Connected";
+  lcd.print("Render Ready");
+  lastLcdRow1 = "Aaditya Kayande ";
+  lastLcdRow2 = "Render Ready    ";
 }
 
 // ------------------------------------------------------------------------------------
@@ -157,13 +205,13 @@ void loop() {
     return;
   }
 
-  // 1. Task 1: Read DHT11 and send sensor data every 10 seconds
+  // 1. Task 1: Read DHT11 and send sensor data every 10 seconds (also syncs LED/LCD!)
   if (currentMillis - lastSensorPushTime >= SENSOR_INTERVAL) {
     lastSensorPushTime = currentMillis;
     readAndSendSensorData();
   }
 
-  // 2. Task 2: Poll server for LED & LCD updates every 2 seconds
+  // 2. Task 2: Poll server for LED & LCD updates every 4 seconds
   if (currentMillis - lastDevicePollTime >= POLL_INTERVAL) {
     lastDevicePollTime = currentMillis;
     pollDeviceState();
@@ -171,7 +219,7 @@ void loop() {
 }
 
 // ------------------------------------------------------------------------------------
-// 1. SENSOR PUSH ROUTINE (DHT11 every 10 seconds)
+// 1. SENSOR PUSH ROUTINE (DHT11 every 10 seconds + 2-Way State Sync)
 // ------------------------------------------------------------------------------------
 void readAndSendSensorData() {
   float humidity = dht.readHumidity();
@@ -195,9 +243,10 @@ void readAndSendSensorData() {
 
   String endpoint = SERVER_URL + "/api/sensor-data";
   bool postSuccess = false;
+  String responsePayload = "";
 
   // Static JSON Document for payload
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<256> doc;
   doc["temperature"] = temperature;
   doc["humidity"] = humidity;
 
@@ -206,8 +255,8 @@ void readAndSendSensorData() {
 
   if (SERVER_URL.startsWith("https://")) {
     WiFiClientSecure secureClient;
-    secureClient.setInsecure(); // Render uses Let's Encrypt SSL; setInsecure avoids certificate verification failures
-    secureClient.setBufferSizes(512, 512);
+    secureClient.setInsecure(); // Bypass SSL cert validation
+    secureClient.setBufferSizes(2048, 512); // 2048 rx buffer accommodates Cloudflare TLS records
 
     if (http.begin(secureClient, endpoint)) {
       http.addHeader("Content-Type", "application/json");
@@ -216,6 +265,7 @@ void readAndSendSensorData() {
       if (httpCode > 0) {
         Serial.print(F("[Render HTTPS] Sensor Push Status: "));
         Serial.println(httpCode);
+        responsePayload = http.getString();
         postSuccess = true;
       } else {
         Serial.print(F("[Render HTTPS] POST Error: "));
@@ -232,6 +282,7 @@ void readAndSendSensorData() {
       if (httpCode > 0) {
         Serial.print(F("[Render HTTP] Sensor Push Status: "));
         Serial.println(httpCode);
+        responsePayload = http.getString();
         postSuccess = true;
       } else {
         Serial.print(F("[Render HTTP] POST Error: "));
@@ -241,13 +292,27 @@ void readAndSendSensorData() {
     }
   }
 
+  // Parse 2-Way Sync Response: Server returns current LED & LCD state directly!
+  if (postSuccess && responsePayload.length() > 0) {
+    StaticJsonDocument<512> respDoc;
+    DeserializationError err = deserializeJson(respDoc, responsePayload);
+    if (!err) {
+      if (respDoc.containsKey("led") && respDoc.containsKey("lcd_row1")) {
+        int ledState = respDoc["led"].as<int>();
+        String r1 = respDoc["lcd_row1"].as<String>();
+        String r2 = respDoc["lcd_row2"].as<String>();
+        applyDeviceState(ledState, r1, r2);
+      }
+    }
+  }
+
   if (!postSuccess) {
     Serial.println(F("[Render] Failed to push sensor reading to server."));
   }
 }
 
 // ------------------------------------------------------------------------------------
-// 2. DEVICE STATE POLL ROUTINE (LED & LCD state every 2 seconds)
+// 2. DEVICE STATE POLL ROUTINE (LED & LCD state every 4 seconds)
 // ------------------------------------------------------------------------------------
 void pollDeviceState() {
   HTTPClient http;
@@ -261,14 +326,21 @@ void pollDeviceState() {
   if (SERVER_URL.startsWith("https://")) {
     WiFiClientSecure secureClient;
     secureClient.setInsecure();
-    secureClient.setBufferSizes(512, 512);
+    secureClient.setBufferSizes(2048, 512); // 2048 rx buffer avoids SSL buffer truncation
 
     if (http.begin(secureClient, endpoint)) {
       httpCode = http.GET();
       if (httpCode == HTTP_CODE_OK) {
         payload = http.getString();
+      } else {
+        Serial.print(F("[Poll HTTPS] GET Status: "));
+        Serial.print(httpCode);
+        Serial.print(F(" - "));
+        Serial.println(http.errorToString(httpCode));
       }
       http.end();
+    } else {
+      Serial.println(F("[Poll HTTPS] http.begin failed to initialize secure connection."));
     }
   } else {
     WiFiClient client;
@@ -281,43 +353,19 @@ void pollDeviceState() {
     }
   }
 
+  // If successfully received state, parse and apply immediately
   if (httpCode == HTTP_CODE_OK && payload.length() > 0) {
-    StaticJsonDocument<384> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, payload);
 
     if (!error) {
-      // 1. Process LED Automation (Tab 3)
-      int ledState = doc["led"] | 0;
-      digitalWrite(LEDPIN, ledState == 1 ? HIGH : LOW);
+      int ledState = doc["led"].as<int>();
+      String newRow1 = doc["lcd_row1"].as<String>();
+      String newRow2 = doc["lcd_row2"].as<String>();
 
-      // 2. Process Smart LCD Display (Tab 2)
-      const char* rawRow1 = doc["lcd_row1"] | "";
-      const char* rawRow2 = doc["lcd_row2"] | "";
-
-      String newRow1 = String(rawRow1);
-      String newRow2 = String(rawRow2);
-
-      // Pad strings to 16 characters to cleanly overwrite old characters without screen artifacts
-      while (newRow1.length() < 16) newRow1 += " ";
-      while (newRow2.length() < 16) newRow2 += " ";
-      newRow1 = newRow1.substring(0, 16);
-      newRow2 = newRow2.substring(0, 16);
-
-      // Update screen only if text has changed to prevent LCD flicker
-      if (newRow1 != lastLcdRow1 || newRow2 != lastLcdRow2) {
-        lcd.setCursor(0, 0);
-        lcd.print(newRow1);
-        lcd.setCursor(0, 1);
-        lcd.print(newRow2);
-
-        lastLcdRow1 = newRow1;
-        lastLcdRow2 = newRow2;
-
-        Serial.println(F("[LCD] Updated text on display."));
-      }
-
+      applyDeviceState(ledState, newRow1, newRow2);
     } else {
-      Serial.print(F("[JSON] Parse error: "));
+      Serial.print(F("[JSON Poll] Parse error: "));
       Serial.println(error.c_str());
     }
   }

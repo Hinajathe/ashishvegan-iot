@@ -171,7 +171,12 @@ app.post('/api/sensor-data', async (req, res) => {
 
     const kolkata = formatKolkataTime(nowUtc);
 
-    res.status(201).json({
+    // Also fetch current device state to return to ESP8266 in the same response!
+    const ledRow = await dbGet("SELECT value FROM device_config WHERE key = 'led_state'");
+    const lcd1Row = await dbGet("SELECT value FROM device_config WHERE key = 'lcd_row1'");
+    const lcd2Row = await dbGet("SELECT value FROM device_config WHERE key = 'lcd_row2'");
+
+    const responsePayload = JSON.stringify({
       success: true,
       message: 'Sensor data saved successfully',
       id: result.lastID,
@@ -180,8 +185,17 @@ app.post('/api/sensor-data', async (req, res) => {
         humidity: humNum,
         time: kolkata.time,
         date: kolkata.date
-      }
+      },
+      led: ledRow ? parseInt(ledRow.value) || 0 : 0,
+      lcd_row1: lcd1Row ? lcd1Row.value : 'Aaditya Kayande',
+      lcd_row2: lcd2Row ? lcd2Row.value : 'System Ready'
     });
+
+    res.set({
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(responsePayload)
+    });
+    res.status(201).send(responsePayload);
   } catch (error) {
     console.error('Error saving sensor data:', error);
     res.status(500).json({ success: false, message: 'Failed to record sensor reading.' });
@@ -333,12 +347,18 @@ app.get('/api/device/state', async (req, res) => {
     const lcd1Row = await dbGet("SELECT value FROM device_config WHERE key = 'lcd_row1'");
     const lcd2Row = await dbGet("SELECT value FROM device_config WHERE key = 'lcd_row2'");
 
-    res.json({
+    const payload = JSON.stringify({
       success: true,
       led: ledRow ? parseInt(ledRow.value) || 0 : 0,
       lcd_row1: lcd1Row ? lcd1Row.value : 'Aaditya Kayande',
       lcd_row2: lcd2Row ? lcd2Row.value : 'System Ready'
     });
+
+    res.set({
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    });
+    res.status(200).send(payload);
   } catch (error) {
     console.error('Error fetching device state:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch device state' });
