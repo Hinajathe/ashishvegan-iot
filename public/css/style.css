@@ -1,0 +1,157 @@
+/* Custom Styling & Green Theme Enhancements for Aaditya Kayande IoT */
+
+:root {
+  --primary-green: #10b981;
+  --primary-dark-green: #047857;
+  --accent-mint: #34d399;
+  --bg-dark: #0b1512;
+  --card-dark: #12221c;
+  --border-green: #1a382c;
+  --lcd-bg: #4be068;
+  --lcd-text: #05260f;
+  --lcd-shadow: #3bb853;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1a15;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e4a38;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}
+
+/* Glassmorphism & Card styling */
+.glass-panel {
+  background: rgba(18, 34, 28, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.glass-card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -8px rgba(16, 185, 129, 0.25);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+/* Gauge Needle Transition */
+.gauge-needle {
+  transition: transform 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: 100px 100px;
+}
+
+/* LED Diode Glowing Animation */
+.led-bulb {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  transition: all 0.4s ease;
+  position: relative;
+}
+
+.led-bulb.off {
+  background: radial-gradient(circle at 35% 35%, #374151 0%, #1f2937 60%, #111827 100%);
+  box-shadow: inset 0 2px 4px rgba(255,255,255,0.1), 0 4px 10px rgba(0,0,0,0.5);
+  border: 3px solid #374151;
+}
+
+.led-bulb.on {
+  background: radial-gradient(circle at 35% 35%, #a7f3d0 0%, #10b981 50%, #047857 100%);
+  box-shadow: 0 0 25px #10b981, 0 0 50px rgba(16, 185, 129, 0.6), inset 0 2px 6px rgba(255,255,255,0.6);
+  border: 3px solid #34d399;
+  animation: ledPulse 2s infinite alternate;
+}
+
+@keyframes ledPulse {
+  0% {
+    box-shadow: 0 0 20px #10b981, 0 0 40px rgba(16, 185, 129, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 35px #34d399, 0 0 65px rgba(52, 211, 153, 0.8), 0 0 100px rgba(16, 185, 129, 0.4);
+  }
+}
+
+/* Authentic 16x2 LCD Simulation Box */
+.lcd-screen-container {
+  background: #18261e;
+  border: 6px solid #0f1813;
+  box-shadow: inset 0 0 15px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.4);
+  border-radius: 10px;
+  padding: 16px 20px;
+  position: relative;
+}
+
+.lcd-display-panel {
+  background: #3ee462;
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 4px 4px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  padding: 12px 16px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #03210d;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.25);
+  min-height: 80px;
+}
+
+.lcd-line {
+  height: 32px;
+  line-height: 32px;
+  font-size: 20px;
+  white-space: pre;
+  overflow: hidden;
+}
+
+/* Custom Seek Bar / Slider track indicator */
+.seek-bar-track {
+  height: 12px;
+  border-radius: 6px;
+  position: relative;
+  background: #1f352b;
+}
+
+.seek-bar-pointer {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+  transition: left 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Tab animations */
+.tab-content {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Toast Notifications */
+#toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+}
