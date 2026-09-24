@@ -77,9 +77,8 @@ A complete, end-to-end Internet of Things (IoT) web application and hardware sys
 4. WiFi settings are pre-configured:
    - **SSID**: `IoT`
    - **Password**: `12345678`
-5. In `arduino/AadityaKayande_ESP8266.ino`, set `SERVER_URL`:
-   - For local testing: `http://192.168.x.x:3000` (Your computer's local IP address)
-   - For Render cloud: `https://your-app-name.onrender.com`
+5. In `arduino/AadityaKayande_ESP8266/AadityaKayande_ESP8266.ino`, the live Render URL is configured:
+   - **Render Cloud URL**: `https://ashishvegan-iot.onrender.com`
 6. Select your COM port and click **Upload**.
 
 ---

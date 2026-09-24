@@ -10,7 +10,7 @@
   WiFi Configuration:
     - SSID: IoT
     - Password: 12345678
-  Backend: Node.js + Express + SQLite (Render Deployable)
+  Backend: Render Cloud (https://ashishvegan-iot.onrender.com)
  ======================================================================================
   Required Arduino IDE Libraries:
     1. ESP8266 Board Package (by ESP8266 Community)
@@ -22,6 +22,7 @@
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <WiFiClient.h>
 #include <DHT.h>
 #include <Wire.h>
@@ -45,15 +46,13 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 DHT dht(DHTPIN, DHTTYPE);
 
 // ------------------------------------------------------------------------------------
-// 2. NETWORK & SERVER CONFIGURATION
+// 2. NETWORK & RENDER SERVER CONFIGURATION
 // ------------------------------------------------------------------------------------
 const char* ssid     = "IoT";
 const char* password = "12345678";
 
-// Set your Backend Server URL:
-// For Local Testing: "http://<YOUR_COMPUTER_LOCAL_IP>:3000" (e.g. "http://192.168.1.15:3000")
-// For Render Cloud:   "https://<your-render-app-name>.onrender.com"
-const String SERVER_URL = "http://192.168.1.100:3000"; // <-- Replace with your local IP or Render URL
+// Live Render Cloud URL (HTTPS Supported)
+const String SERVER_URL = "https://ashishvegan-iot.onrender.com";
 
 // Timing intervals
 unsigned long lastSensorPushTime = 0;
@@ -76,6 +75,8 @@ void setup() {
   Serial.println(F("=================================================="));
   Serial.println(F("  Aaditya Kayande IoT System Initializing...      "));
   Serial.println(F("  Dept of Electrical Engg, GCOE Yavatmal          "));
+  Serial.print(F("  Target Render URL: "));
+  Serial.println(SERVER_URL);
   Serial.println(F("=================================================="));
 
   // Initialize LED Pin
@@ -137,9 +138,9 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("Aaditya Kayande");
   lcd.setCursor(0, 1);
-  lcd.print("System Ready");
+  lcd.print("Render Connected");
   lastLcdRow1 = "Aaditya Kayande";
-  lastLcdRow2 = "System Ready";
+  lastLcdRow2 = "Render Connected";
 }
 
 // ------------------------------------------------------------------------------------
@@ -188,32 +189,60 @@ void readAndSendSensorData() {
   Serial.print(humidity, 1);
   Serial.println(F(" %"));
 
-  WiFiClient client;
   HTTPClient http;
+  http.setTimeout(12000); // 12 seconds timeout to accommodate Render cloud latency
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   String endpoint = SERVER_URL + "/api/sensor-data";
-  if (http.begin(client, endpoint)) {
-    http.addHeader("Content-Type", "application/json");
+  bool postSuccess = false;
 
-    // Construct JSON payload
-    StaticJsonDocument<128> doc;
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
+  // Static JSON Document for payload
+  StaticJsonDocument<128> doc;
+  doc["temperature"] = temperature;
+  doc["humidity"] = humidity;
 
-    String jsonPayload;
-    serializeJson(doc, jsonPayload);
+  String jsonPayload;
+  serializeJson(doc, jsonPayload);
 
-    int httpCode = http.POST(jsonPayload);
-    if (httpCode > 0) {
-      Serial.print(F("[HTTP] Sensor Data POST Status: "));
-      Serial.println(httpCode);
-    } else {
-      Serial.print(F("[HTTP] POST error: "));
-      Serial.println(http.errorToString(httpCode));
+  if (SERVER_URL.startsWith("https://")) {
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure(); // Render uses Let's Encrypt SSL; setInsecure avoids certificate verification failures
+    secureClient.setBufferSizes(512, 512);
+
+    if (http.begin(secureClient, endpoint)) {
+      http.addHeader("Content-Type", "application/json");
+      int httpCode = http.POST(jsonPayload);
+
+      if (httpCode > 0) {
+        Serial.print(F("[Render HTTPS] Sensor Push Status: "));
+        Serial.println(httpCode);
+        postSuccess = true;
+      } else {
+        Serial.print(F("[Render HTTPS] POST Error: "));
+        Serial.println(http.errorToString(httpCode));
+      }
+      http.end();
     }
-    http.end();
   } else {
-    Serial.println(F("[HTTP] Unable to connect to backend server."));
+    WiFiClient client;
+    if (http.begin(client, endpoint)) {
+      http.addHeader("Content-Type", "application/json");
+      int httpCode = http.POST(jsonPayload);
+
+      if (httpCode > 0) {
+        Serial.print(F("[Render HTTP] Sensor Push Status: "));
+        Serial.println(httpCode);
+        postSuccess = true;
+      } else {
+        Serial.print(F("[Render HTTP] POST Error: "));
+        Serial.println(http.errorToString(httpCode));
+      }
+      http.end();
+    }
+  }
+
+  if (!postSuccess) {
+    Serial.println(F("[Render] Failed to push sensor reading to server."));
   }
 }
 
@@ -221,55 +250,75 @@ void readAndSendSensorData() {
 // 2. DEVICE STATE POLL ROUTINE (LED & LCD state every 2 seconds)
 // ------------------------------------------------------------------------------------
 void pollDeviceState() {
-  WiFiClient client;
   HTTPClient http;
+  http.setTimeout(8000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   String endpoint = SERVER_URL + "/api/device/state";
-  if (http.begin(client, endpoint)) {
-    int httpCode = http.GET();
+  int httpCode = -1;
+  String payload = "";
 
-    if (httpCode == HTTP_CODE_OK) {
-      String payload = http.getString();
+  if (SERVER_URL.startsWith("https://")) {
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+    secureClient.setBufferSizes(512, 512);
 
-      StaticJsonDocument<384> doc;
-      DeserializationError error = deserializeJson(doc, payload);
-
-      if (!error) {
-        // 1. Process LED Automation (Tab 3)
-        int ledState = doc["led"] | 0;
-        digitalWrite(LEDPIN, ledState == 1 ? HIGH : LOW);
-
-        // 2. Process Smart LCD Display (Tab 2)
-        const char* rawRow1 = doc["lcd_row1"] | "";
-        const char* rawRow2 = doc["lcd_row2"] | "";
-
-        String newRow1 = String(rawRow1);
-        String newRow2 = String(rawRow2);
-
-        // Pad strings to 16 characters to cleanly overwrite old characters without screen artifacts
-        while (newRow1.length() < 16) newRow1 += " ";
-        while (newRow2.length() < 16) newRow2 += " ";
-        newRow1 = newRow1.substring(0, 16);
-        newRow2 = newRow2.substring(0, 16);
-
-        // Update screen only if text has changed to prevent LCD flicker
-        if (newRow1 != lastLcdRow1 || newRow2 != lastLcdRow2) {
-          lcd.setCursor(0, 0);
-          lcd.print(newRow1);
-          lcd.setCursor(0, 1);
-          lcd.print(newRow2);
-
-          lastLcdRow1 = newRow1;
-          lastLcdRow2 = newRow2;
-
-          Serial.println(F("[LCD] Updated text on display."));
-        }
-
-      } else {
-        Serial.print(F("[JSON] Parse error: "));
-        Serial.println(error.c_str());
+    if (http.begin(secureClient, endpoint)) {
+      httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK) {
+        payload = http.getString();
       }
+      http.end();
     }
-    http.end();
+  } else {
+    WiFiClient client;
+    if (http.begin(client, endpoint)) {
+      httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK) {
+        payload = http.getString();
+      }
+      http.end();
+    }
+  }
+
+  if (httpCode == HTTP_CODE_OK && payload.length() > 0) {
+    StaticJsonDocument<384> doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      // 1. Process LED Automation (Tab 3)
+      int ledState = doc["led"] | 0;
+      digitalWrite(LEDPIN, ledState == 1 ? HIGH : LOW);
+
+      // 2. Process Smart LCD Display (Tab 2)
+      const char* rawRow1 = doc["lcd_row1"] | "";
+      const char* rawRow2 = doc["lcd_row2"] | "";
+
+      String newRow1 = String(rawRow1);
+      String newRow2 = String(rawRow2);
+
+      // Pad strings to 16 characters to cleanly overwrite old characters without screen artifacts
+      while (newRow1.length() < 16) newRow1 += " ";
+      while (newRow2.length() < 16) newRow2 += " ";
+      newRow1 = newRow1.substring(0, 16);
+      newRow2 = newRow2.substring(0, 16);
+
+      // Update screen only if text has changed to prevent LCD flicker
+      if (newRow1 != lastLcdRow1 || newRow2 != lastLcdRow2) {
+        lcd.setCursor(0, 0);
+        lcd.print(newRow1);
+        lcd.setCursor(0, 1);
+        lcd.print(newRow2);
+
+        lastLcdRow1 = newRow1;
+        lastLcdRow2 = newRow2;
+
+        Serial.println(F("[LCD] Updated text on display."));
+      }
+
+    } else {
+      Serial.print(F("[JSON] Parse error: "));
+      Serial.println(error.c_str());
+    }
   }
 }
